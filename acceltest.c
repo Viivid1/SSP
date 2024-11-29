@@ -5,72 +5,64 @@
 #include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
 
-#define I2C_BUS "/dev/i2c-1"  // I2C 버스 경로 (라즈베리파이에서는 /dev/i2c-1)
-#define SENSOR_ADDR 0x53      // ADXL345 가속도 센서 I2C 주소 (센서에 따라 변경)
-
-// 레지스터 주소
-#define POWER_CTL 0x2D        // 전원 제어 레지스터
-#define DATA_FORMAT 0x31      // 데이터 포맷 레지스터
-#define DATAX0 0x32           // X축 데이터 시작 레지스터
+#define I2C_BUS "/dev/i2c-1"  // I2C 버스 경로
+#define MPU6050_ADDR 0x68     // MPU6050 디바이스 주소
+#define PWR_MGMT_1 0x6B       // 전원 관리 레지스터
+#define ACCEL_XOUT_H 0x3B     // 가속도 데이터 시작 레지스터
 
 int main() {
-    int fd;  // I2C 디바이스 파일 디스크립터
-    char buf[6];  // 센서 데이터 저장 버퍼
+    int fd; // I2C 디바이스 파일 디스크립터
+    char buf[6]; // 데이터 버퍼
 
-    // I2C 버스 열기
+    // 1. I2C 버스 열기
     if ((fd = open(I2C_BUS, O_RDWR)) < 0) {
-        perror("Failed to open I2C bus");
+        perror("Failed to open the I2C bus");
         return 1;
     }
 
-    // 센서 주소 설정
-    if (ioctl(fd, I2C_SLAVE, SENSOR_ADDR) < 0) {
-        perror("Failed to set I2C address");
+    // 2. MPU6050 디바이스 주소 설정
+    if (ioctl(fd, I2C_SLAVE, MPU6050_ADDR) < 0) {
+        perror("Failed to connect to the sensor");
         close(fd);
         return 1;
     }
 
-    // 전원 제어: 센서 활성화
-    char power_ctl[] = {POWER_CTL, 0x08};
-    if (write(fd, power_ctl, 2) < 0) {
-        perror("Failed to write to POWER_CTL");
+    // 3. MPU6050 초기화: PWR_MGMT_1 레지스터에 0x00 기록 (슬립 모드 해제)
+    char config[2];
+    config[0] = PWR_MGMT_1;
+    config[1] = 0x00;
+    if (write(fd, config, 2) < 0) {
+        perror("Failed to initialize MPU6050");
         close(fd);
         return 1;
     }
 
-    // 데이터 포맷 설정
-    char data_format[] = {DATA_FORMAT, 0x08};
-    if (write(fd, data_format, 2) < 0) {
-        perror("Failed to write to DATA_FORMAT");
-        close(fd);
-        return 1;
-    }
-
-    // 가속도 데이터 읽기
+    // 4. 가속도 데이터 읽기 루프
     while (1) {
-        // X, Y, Z 데이터 읽기 시작 주소 설정
-        char reg = DATAX0;
+        // 가속도 데이터 시작 주소 설정
+        char reg = ACCEL_XOUT_H;
         if (write(fd, &reg, 1) < 0) {
             perror("Failed to set data register");
             close(fd);
             return 1;
         }
 
-        // 데이터 읽기 (X축, Y축, Z축 2바이트씩 총 6바이트)
+        // X, Y, Z 축 데이터 읽기 (6바이트)
         if (read(fd, buf, 6) < 0) {
             perror("Failed to read accelerometer data");
             close(fd);
             return 1;
         }
 
-        // 16비트 데이터로 변환
-        int x = (buf[1] << 8) | buf[0];
-        int y = (buf[3] << 8) | buf[2];
-        int z = (buf[5] << 8) | buf[4];
+        // X, Y, Z 데이터 변환 (16비트 값)
+        int16_t accel_x = (buf[0] << 8) | buf[1];
+        int16_t accel_y = (buf[2] << 8) | buf[3];
+        int16_t accel_z = (buf[4] << 8) | buf[5];
 
-        // 출력
-        printf("X: %d, Y: %d, Z: %d\n", x, y, z);
-        usleep(500000);  // 0.5초 대기
+        // 가속도 출력
+        printf("Accel X: %d, Accel Y: %d, Accel Z: %d\n", accel_x, accel_y, accel_z);
+
+        usleep(500000); // 0.5초 대기
     }
 
     close(fd);
